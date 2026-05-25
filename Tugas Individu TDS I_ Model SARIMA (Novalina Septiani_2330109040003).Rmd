@@ -1,0 +1,810 @@
+---
+title: "Topik Dalam Statistika I (Model SARIMA)_Nova"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Pendahuluan
+Pada penelitian ini digunakan metode SARIMA (Seasonal Autoregressive Integrated Moving Average) untuk menganalisis dan melakukan peramalan data deret waktu yang memiliki pola musiman.
+
+# Library
+```{r}
+library(forecast)
+library(tseries)
+```
+Kode di atas digunakan untuk memanggil package forecast dan tseries yang diperlukan dalam proses analisis dan pemodelan data time series menggunakan metode SARIMA.
+
+# Membaca Data
+```{r}
+# Membaca data CSV
+data2 <- read.csv("C:/Users/Msi user/Downloads/Walmart.csv")
+# Melihat struktur data
+str(data2)
+# Melihat nama kolom
+names(data2)
+# Melihat data awal
+head(data2)
+```
+Tahap ini dilakukan untuk membaca data dari file CSV ke dalam R, kemudian menampilkan struktur data, nama variabel, serta beberapa baris awal data guna memastikan data telah berhasil diinput dengan benar.
+
+#Pembentukan Data Time Series
+Data yang sebelumnya telah diinput masih berbentuk data frame, sehingga perlu dikonversi terlebih dahulu ke dalam bentuk time series menggunakan fungsi ts().
+
+```{r}
+# Membentuk data time series
+data.ts <- ts(data2$Weekly_Sales,
+              start = c(2010,1),
+              frequency = 12)
+
+# Menampilkan data time series
+data.ts
+```
+#Visualisasi
+Visualisasi data dilakukan untuk mengetahui pola pergerakan data penjualan dari waktu ke waktu, sehingga dapat terlihat adanya tren, musiman, maupun fluktuasi pada data.
+
+```{r}
+ts.plot(data.ts,
+        type = "l",
+        ylab = "Weekly Sales",
+        xlab = "Time",
+        col = "blue")
+
+title(main = "Time Series Plot Weekly Sales Walmart")
+
+points(data.ts,
+       pch = 20,
+       col = "blue")
+```
+
+# Visualisasi Per Musim
+Visualisasi musiman dilakukan untuk mengidentifikasi pola data yang berulang pada setiap periode tertentu. Karena data penjualan Walmart merupakan data mingguan, maka digunakan periode musiman sebanyak 52 minggu dalam satu tahun.
+
+```{r}
+library(forecast)
+
+seasonplot(data.ts,
+           year.labels = TRUE,
+           main = "Seasonal Plot of Weekly Sales Walmart",
+           ylab = "Weekly Sales",
+           col = rainbow(10))
+```
+
+# Visualisasi Deskriptif
+Visualisasi deskriptif dilakukan untuk mengetahui karakteristik data pada setiap periode musiman serta melihat penyebaran data penjualan Walmart.
+
+```{r}
+monthplot(data.ts,
+          ylab = "Weekly Sales",
+          col = "blue")
+
+boxplot(data2$Weekly_Sales,
+        ylab = "Weekly Sales",
+        col = "lightblue",
+        main = "Boxplot Weekly Sales Walmart")
+```
+
+Kode di atas digunakan untuk menampilkan month plot yang bertujuan melihat pola rata-rata data pada setiap periode musiman sehingga dapat diketahui adanya pola tertentu pada data penjualan mingguan.
+Boxplot digunakan untuk menggambarkan penyebaran data, nilai tengah, serta mendeteksi adanya pencilan (outlier) pada data Weekly Sales Walmart.
+
+# Identifikasi Model
+Berdasarkan grafik time series yang telah ditampilkan sebelumnya, data diduga belum stasioner terhadap rataan karena masih menunjukkan adanya pola musiman serta fluktuasi yang cukup besar. Oleh karena itu, dilakukan pengujian formal terhadap kestabilan ragam data menggunakan uji Fligner-Killeen.
+
+# Uji Kehomogenan Ragam
+Hipotesis:
+- \(H_0\): Ragam homogen
+- \(H_1\): Ragam tidak homogen
+
+```{r}
+# Membuat variabel musim
+tahun <- cycle(data.ts)
+
+# Uji Fligner-Killeen
+fligner.test(data2$Weekly_Sales ~ tahun)
+```
+
+Berdasarkan hasil uji Fligner-Killeen dengan taraf signifikansi α=0.05, diperoleh nilai p-value yang kemudian dibandingkan dengan nilai α.
+- Jika \(p\text{-value} > 0.05\), maka gagal tolak \(H_0\), sehingga ragam data bersifat homogen.
+- Jika \(p\text{-value} < 0.05\), maka tolak \(H_0\), sehingga ragam data tidak homogen.
+Dengan demikian dapat disimpulkan apakah data sudah stasioner terhadap ragam homogen.
+
+# Splitting Data
+Data yang digunakan dalam pemodelan dibagi menjadi dua bagian, yaitu data training dan data testing.
+- Data training digunakan untuk membangun model SARIMA.
+- Data testing digunakan untuk mengevaluasi performa forecasting model.
+Pembagian data dilakukan sebesar:
+- 80% sebagai data training
+- 20% sebagai data testing
+
+```{r}
+# Menentukan jumlah data
+n <- length(data.ts)
+
+# Membagi data training 80%
+train.ts <- subset(data.ts,
+                   start = 1,
+                   end = floor(0.8*n))
+
+# Membagi data testing 20%
+test.ts <- subset(data.ts,
+                  start = floor(0.8*n)+1)
+
+# Melihat panjang data
+length(train.ts)
+length(test.ts)
+```
+
+# Visualisasi Data Training
+Visualisasi data training dilakukan untuk melihat pola dan karakteristik data yang akan digunakan dalam proses pembentukan model SARIMA. Dengan visualisasi ini, dapat diamati adanya tren, pola musiman, maupun fluktuasi pada data training.
+
+```{r}
+ts.plot(train.ts,
+        col = "blue",
+        ylab = "Weekly Sales",
+        xlab = "Time")
+
+title(main = "Training Data Plot",
+      cex.sub = 0.8)
+
+points(train.ts,
+       pch = 20,
+       col = "blue")
+```
+
+# Visualisasi Data Testing
+Visualisasi data testing dilakukan untuk melihat pola data yang nantinya digunakan dalam proses evaluasi akurasi hasil peramalan model SARIMA. Melalui visualisasi ini, dapat diketahui karakteristik data yang akan dibandingkan dengan hasil forecasting model.
+
+```{r}
+ts.plot(test.ts,
+        col = "red",
+        ylab = "Weekly Sales",
+        xlab = "Time")
+
+title(main = "Testing Data Plot",
+      cex.sub = 0.8)
+
+points(test.ts,
+       pch = 20,
+       col = "red")
+```
+# ARIMA NON-SEASONAL
+#Identifikasi Kestasioneran Data
+Tahap awal dalam pembentukan model ARIMA non-seasonal adalah melakukan pemeriksaan kestasioneran data terhadap rataan. Pemeriksaan ini dilakukan menggunakan plot ACF (Autocorrelation Function) untuk melihat pola autokorelasi pada data time series.
+
+```{r}
+acf0 <- acf(train.ts,
+            main = "ACF Data Training",
+            lag.max = 60,
+            xaxt = "n",
+            col = "blue")
+
+axis(1,
+     at = 0:60/12,
+     labels = 0:60)
+```
+
+Berdasarkan plot ACF, terlihat bahwa nilai autokorelasi menurun secara perlahan (tails off), sehingga data diduga belum stasioner terhadap rataan. Oleh karena itu, perlu dilakukan proses differencing untuk mencapai kondisi data yang stasioner.
+
+# Differencing Non-Seasonal
+Proses differencing dilakukan untuk mengatasi ketidakstasioneran data terhadap rataan sehingga data menjadi lebih stasioner dan dapat digunakan dalam pembentukan model ARIMA non-seasonal.
+
+```{r}
+# Differencing pertama
+d1 <- diff(train.ts)
+
+# Plot differencing
+ts.plot(d1,
+        type = "l",
+        ylab = "Differencing 1",
+        xlab = "Time",
+        col = "blue")
+
+title(main = "Plot Differencing Non-Seasonal")
+```
+
+BBerdasarkan hasil differencing pertama, data terlihat lebih stabil dan fluktuasi data sudah berada di sekitar rata-rata yang konstan, sehingga data diduga telah lebih stasioner terhadap rataan.
+
+# Identifikasi Kestasioneran Setelah Differencing
+Plot ACF kembali digunakan untuk memastikan apakah data hasil differencing sudah stasioner terhadap rataan.
+
+```{r}
+acf1 <- acf(d1,
+            lag.max = 60,
+            xaxt = "n",
+            main = "ACF Differencing 1",
+            col = "blue")
+
+axis(1,
+     at = 0:60/12,
+     labels = 0:60)
+```
+
+Berdasarkan plot ACF setelah differencing pertama, nilai autokorelasi terlihat lebih cepat menurun menuju nol sehingga data telah mendekati kondisi stasioner untuk komponen non-seasonal.
+
+# ARIMA SEASONAL
+## Differencing Seasonal
+Karena data menunjukkan adanya pola musiman, maka dilakukan seasonal differencing untuk menghilangkan pengaruh musiman pada data sehingga data menjadi lebih stasioner.
+
+```{r}
+# Seasonal differencing
+D1 <- diff(train.ts, 52)
+
+# Plot seasonal differencing
+ts.plot(D1,
+        type = "l",
+        ylab = "Seasonal Differencing",
+        xlab = "Time",
+        col = "blue")
+
+title(main = "Plot Seasonal Differencing")
+```
+
+Berdasarkan hasil seasonal differencing, pola musiman pada data mulai berkurang dan data terlihat lebih stabil dibandingkan sebelumnya.
+
+# Identifikasi Seasonal Differencing
+Plot ACF digunakan kembali untuk melihat apakah data hasil seasonal differencing telah mencapai kondisi stasioner.
+
+```{r}
+acf2 <- acf(D1,
+            lag.max = 60,
+            xaxt = "n",
+            main = "ACF Seasonal Differencing",
+            col = "blue")
+
+axis(1,
+     at = 0:60/12,
+     labels = 0:60)
+```
+
+Berdasarkan plot ACF hasil seasonal differencing, autokorelasi musiman mulai menurun sehingga pengaruh musiman pada data telah berkurang.
+# Differencing Gabungan
+Selanjutnya dilakukan differencing pertama pada data yang telah melalui proses seasonal differencing untuk memastikan data benar-benar stasioner terhadap rataan maupun komponen musiman.
+
+```{r}
+# Differencing gabungan
+d1D1 <- diff(D1)
+
+# Plot differencing gabungan
+ts.plot(d1D1,
+        type = "l",
+        ylab = "Differencing Gabungan",
+        xlab = "Time",
+        col = "blue")
+
+title(main = "Plot Differencing Gabungan")
+```
+
+Berdasarkan plot differencing gabungan, data terlihat berfluktuasi di sekitar rata-rata yang konstan sehingga data diduga telah stasioner terhadap rataan.
+# Identifikasi Model
+Model SARIMA diidentifikasi menggunakan plot ACF (Autocorrelation Function) dan PACF (Partial Autocorrelation Function) pada data hasil differencing gabungan.
+
+## Plot ACF
+```{r}
+acf3 <- acf(d1D1,
+            lag.max = 60,
+            xaxt = "n",
+            main = "ACF Differencing Gabungan",
+            col = "blue")
+
+axis(1,
+     at = 0:60/12,
+     labels = 0:60)
+```
+
+## Plot PACF
+```{r}
+pacf3 <- pacf(d1D1,
+              lag.max = 60,
+              xaxt = "n",
+              main = "PACF Differencing Gabungan",
+              col = "blue")
+
+axis(1,
+     at = 0:60/12,
+     labels = 0:60)
+```
+
+Berdasarkan plot ACF dan PACF, diperoleh beberapa kandidat model SARIMA yang akan digunakan pada tahap estimasi parameter.
+# Identifikasi Model SARIMA
+Identifikasi model SARIMA dilakukan menggunakan plot ACF (Autocorrelation Function) dan PACF (Partial Autocorrelation Function) dari data hasil differencing gabungan.
+
+## Plot ACF
+```{r}
+acf3 <- acf(d1D1,
+            lag.max = 48,
+            xaxt = "n",
+            main = "ACF Differencing Gabungan",
+            col = "blue")
+
+axis(1,
+     at = 0:48/12,
+     labels = 0:48)
+```
+
+## Plot PACF
+```{r}
+pacf3 <- pacf(d1D1,
+              lag.max = 48,
+              xaxt = "n",
+              main = "PACF Differencing Gabungan",
+              col = "blue")
+
+axis(1,
+     at = 0:48/12,
+     labels = 0:48)
+```
+
+Berdasarkan plot ACF dan PACF, terlihat adanya pola cut-off dan tails-off pada beberapa lag awal sehingga diperoleh dugaan beberapa kandidat model non-seasonal.
+
+# Identifikasi Komponen Seasonal
+```{r}
+acf3$lag <- acf3$lag * 12
+
+acf3.1 <- as.data.frame(cbind(acf3$acf,
+                              acf3$lag))
+
+acf3.2 <- acf3.1[which(acf3.1$V2 %% 12 == 0),]
+
+barplot(height = acf3.2$V1,
+        names.arg = acf3.2$V2,
+        ylab = "ACF",
+        xlab = "Lag",
+        col = "blue")
+```
+
+```{r}
+pacf3$lag <- pacf3$lag * 12
+
+pacf3.1 <- as.data.frame(cbind(pacf3$acf,
+                               pacf3$lag))
+
+pacf3.2 <- pacf3.1[which(pacf3.1$V2 %% 12 == 0),]
+
+barplot(height = pacf3.2$V1,
+        names.arg = pacf3.2$V2,
+        ylab = "PACF",
+        xlab = "Lag",
+        col = "blue")
+```
+
+Berdasarkan pola musiman pada plot ACF dan PACF, diperoleh dugaan komponen seasonal yaitu model SARIMA (0,1,1). 
+
+# Extended Autocorrelation Function (EACF)
+Extended Autocorrelation Function (EACF) digunakan untuk membantu menentukan kandidat model ARIMA yang paling sesuai berdasarkan pola autokorelasi pada data.
+
+```{r}
+library(TSA)
+
+eacf(d1D1)
+```
+
+Berdasarkan hasil EACF diperoleh beberapa kandidat model non-seasonal yang 
+mungkin digunakan dalam pembentukan model SARIMA.
+
+# Kandidat Model SARIMA
+Berdasarkan hasil identifikasi menggunakan plot ACF, PACF, dan EACF, diperoleh beberapa kandidat model SARIMA yang akan digunakan pada tahap estimasi parameter dan pemilihan model terbaik.
+
+- SARIMA(0,1,2)(0,1,1)
+- SARIMA(2,1,2)(0,1,1)
+- SARIMA(2,1,0)(0,1,1)
+- SARIMA(1,1,1)(0,1,1)
+- SARIMA(0,1,1)(0,1,1)
+
+# Estimasi Parameter Model
+```{r}
+library(forecast)
+
+# Model 1
+tmodel1 <- Arima(train.ts,
+                 order = c(0,1,2),
+                 seasonal = c(0,1,1))
+
+summary(tmodel1)
+
+# Model 2
+tmodel2 <- Arima(train.ts,
+                 order = c(2,1,2),
+                 seasonal = c(0,1,1))
+
+summary(tmodel2)
+
+# Model 3
+tmodel3 <- Arima(train.ts,
+                 order = c(2,1,0),
+                 seasonal = c(0,1,1))
+
+summary(tmodel3)
+
+# Model 4
+tmodel4 <- Arima(train.ts,
+                 order = c(1,1,1),
+                 seasonal = c(0,1,1))
+
+summary(tmodel4)
+
+# Model 5
+tmodel5 <- Arima(train.ts,
+                 order = c(0,1,1),
+                 seasonal = c(0,1,1))
+
+summary(tmodel5)
+```
+
+# Model Terbaik
+Pemilihan model terbaik dilakukan dengan membandingkan nilai AIC, AICc, dan BIC dari setiap kandidat model SARIMA. Model dengan nilai AIC, AICc, dan BIC paling kecil dipilih sebagai model terbaik karena dianggap memiliki keseimbangan yang baik antara ketepatan model dan kompleksitas model.
+
+```{r}
+# Mengambil nilai AIC
+AICKandidatModel <- c(tmodel1$aic,
+                      tmodel2$aic,
+                      tmodel3$aic,
+                      tmodel4$aic,
+                      tmodel5$aic)
+
+# Mengambil nilai AICc
+AICcKandidatModel <- c(tmodel1$aicc,
+                       tmodel2$aicc,
+                       tmodel3$aicc,
+                       tmodel4$aicc,
+                       tmodel5$aicc)
+
+# Mengambil nilai BIC
+BICKandidatModel <- c(tmodel1$bic,
+                      tmodel2$bic,
+                      tmodel3$bic,
+                      tmodel4$bic,
+                      tmodel5$bic)
+
+# Nama kandidat model
+KandidatModelARIMA <- c(
+  "SARIMA(0,1,2)(0,1,1)",
+  "SARIMA(2,1,2)(0,1,1)",
+  "SARIMA(2,1,0)(0,1,1)",
+  "SARIMA(1,1,1)(0,1,1)",
+  "SARIMA(0,1,1)(0,1,1)"
+)
+
+# Menggabungkan hasil
+compmodelARIMA <- cbind(KandidatModelARIMA,
+                        AICKandidatModel,
+                        AICcKandidatModel,
+                        BICKandidatModel)
+
+# Mengubah menjadi data frame
+compmodelARIMA <- as.data.frame(compmodelARIMA)
+
+# Memberi nama kolom
+colnames(compmodelARIMA) <- c("Kandidat Model",
+                              "Nilai AIC",
+                              "Nilai AICc",
+                              "Nilai BIC")
+
+# Menampilkan tabel
+compmodelARIMA
+```
+
+Berdasarkan hasil perbandingan nilai AIC, AICc, dan BIC, model terbaik dipilih berdasarkan nilai AIC dan AICc terkecil.
+Model dengan nilai AIC terkecil menunjukkan bahwa model tersebut memiliki kemampuan yang baik dalam menjelaskan data dengan kompleksitas model yang optimal.
+Oleh karena itu, model SARIMA terbaik yang diperoleh adalah model dengan nilai AIC terkecil di antara seluruh kandidat model yang diuji.
+
+# Dibandingkan dengan auto.arima
+Pemilihan model terbaik juga dilakukan menggunakan fungsi auto.arima() untuk membandingkan hasil identifikasi model secara manual dengan metode pemilihan model otomatis.
+
+```{r}
+# Pemilihan model otomatis
+auto_model <- auto.arima(train.ts)
+
+# Menampilkan hasil model
+auto_model
+```
+
+Berdasarkan hasil fungsi auto.arima(), diperoleh model SARIMA terbaik secara otomatis, yaitu model dengan nilai AIC terkecil berdasarkan proses seleksi otomatis.
+
+# Perbandingan Model Terbaik
+Model terbaik yang diperoleh dari identifikasi manual dan fungsi auto.arima() dibandingkan berdasarkan nilai AIC untuk menentukan model yang paling optimal dalam memodelkan data.
+
+```{r}
+# Membandingkan nilai AIC
+AIC_manual <- tmodel2$aic
+AIC_auto <- auto_model$aic
+
+# Membuat tabel perbandingan
+PerbandinganModel <- data.frame(
+  Model = c("SARIMA Manual", "SARIMA auto.arima"),
+  AIC = c(AIC_manual, AIC_auto)
+)
+
+# Menampilkan tabel
+PerbandinganModel
+```
+
+Berdasarkan hasil perbandingan nilai AIC, model dengan nilai AIC terkecil dipilih sebagai model terbaik.
+Apabila model hasil identifikasi manual memiliki nilai AIC lebih kecil dibandingkan model auto.arima(), maka model manual dianggap lebih baik dalam menjelaskan data.
+Dengan demikian, model SARIMA terbaik yang digunakan untuk analisis lebih lanjut adalah model dengan nilai AIC paling kecil.
+
+# Pengujian Parameter Model
+Pengujian parameter dilakukan untuk mengetahui apakah parameter pada model SARIMA yang terbentuk signifikan atau tidak.
+Pada tahap ini digunakan fungsi printstatarima untuk menampilkan nilai koefisien, standard error, statistik t, dan p-value dari masing-masing parameter model.
+
+```{r}
+# Fungsi pengujian parameter model
+printstatarima <- function (x, digits = 4, se = TRUE){
+
+  if(length(x$coef) > 0){
+
+    cat("\nCoefficients:\n")
+
+    coef <- round(x$coef, digits = digits)
+
+    if(se && nrow(x$var.coef)){
+
+      ses <- rep(0, length(coef))
+
+      ses[x$mask] <- round(sqrt(diag(x$var.coef)),
+                           digits = digits)
+
+      coef <- matrix(coef,
+                     1,
+                     dimnames = list(NULL,
+                                     names(coef)))
+
+      coef <- rbind(coef,
+                    s.e. = ses)
+
+      statt <- coef[1,] / ses
+
+      pval <- 2 * pt(abs(statt),
+                     df = length(x$residuals)-1,
+                     lower.tail = FALSE)
+
+      coef <- rbind(coef,
+                    t = round(statt, digits = digits),
+                    sign. = round(pval, digits = digits))
+
+      coef <- t(coef)
+    }
+
+    print.default(coef,
+                  print.gap = 2)
+  }
+}
+
+# Menampilkan hasil pengujian parameter
+printstatarima(tmodel2)
+```
+
+Berdasarkan hasil pengujian parameter model, parameter yang memiliki nilai p-value lebih kecil dari 0.05 dinyatakan signifikan terhadap model.
+Sebagian besar parameter pada model SARIMA menunjukkan hasil yang signifikan sehingga model dapat digunakan untuk analisis lebih lanjut.
+
+# Interpretasi Parameter Model
+Model terbaik yang diperoleh adalah model:
+
+\[
+SARIMA(2,1,2)(0,1,1)
+\]
+
+dengan parameter:
+
+- \(p = 2\)
+- \(d = 1\)
+- \(q = 2\)
+- \(P = 0\)
+- \(D = 1\)
+- \(Q = 1\)
+
+Persamaan umum model SARIMA dituliskan sebagai:
+
+\[
+\phi_p(B)\Phi_P(B^s)(1-B)^d(1-B^s)^D X_t
+=
+\theta_q(B)\Theta_Q(B^s)e_t
+\]
+
+Untuk model SARIMA \((2,1,2)(0,1,1)\) diperoleh:
+
+\[
+(1-\phi_1B-\phi_2B^2)(1-B)(1-B^{52})X_t
+=
+(1+\theta_1B+\theta_2B^2)(1+\Theta_1B^{52})e_t
+\]
+# Substitusi Parameter Model
+
+Berdasarkan hasil estimasi parameter diperoleh:
+
+- \(\phi_1 = -1.1697\)
+- \(\phi_2 = -0.1758\)
+- \(\theta_1 = 0.3640\)
+- \(\theta_2 = -0.5464\)
+- \(\Theta_1 = -0.5058\)
+
+Sehingga model SARIMA yang terbentuk dapat dituliskan sebagai:
+
+\[
+(1+1.1697B+0.1758B^2)
+(1-B)
+(1-B^{52})X_t
+=
+(1+0.3640B-0.5464B^2)
+(1-0.5058B^{52})e_t
+\]
+
+# Diagnostic Model
+Diagnostik model dilakukan untuk memeriksa apakah residual dari model SARIMA telah memenuhi asumsi white noise dan berdistribusi normal. Pemeriksaan ini penting untuk memastikan bahwa model yang diperoleh sudah layak digunakan dalam proses peramalan.
+
+```{r}
+# Menampilkan residual model
+tsdisplay(residuals(tmodel2),
+          lag.max = 45,
+          main = "Residual Model SARIMA",
+          col = "blue")
+```
+
+Berdasarkan plot residual, residual terlihat menyebar secara acak di sekitar nol. 
+Selain itu, plot ACF dan PACF residual menunjukkan sebagian besar lag berada 
+dalam batas signifikansi sehingga residual diduga telah memenuhi asumsi white noise.
+Untuk memastikan kembali, dilakukan pengujian formal menggunakan uji Ljung-Box.
+
+# Uji Ljung-Box
+Uji Ljung-Box digunakan untuk mengetahui apakah residual model masih mengandung autokorelasi atau tidak.
+Hipotesis:
+
+- \(H_0\): Tidak terdapat autokorelasi pada residual
+- \(H_1\): Terdapat autokorelasi pada residual
+
+```{r}
+# Install package jika belum ada
+if(!require(portes)){
+  install.packages("portes",
+                   repos = "https://cloud.r-project.org/")
+  library(portes)
+}
+```
+```{r}
+# Uji Ljung-Box beberapa lag
+lags <- c(5,10,15,20,25,30)
+
+hasil_ljungbox <- data.frame(
+  Lag = lags,
+  Statistik = NA,
+  P_Value = NA
+)
+
+for(i in 1:length(lags)){
+  
+  test <- Box.test(
+    residuals(tmodel2),
+    lag = lags[i],
+    type = "Ljung-Box"
+  )
+  
+  hasil_ljungbox$Statistik[i] <- test$statistic
+  hasil_ljungbox$P_Value[i] <- test$p.value
+}
+
+hasil_ljungbox
+```
+
+Berdasarkan hasil uji Ljung-Box, diperoleh nilai p-value yang lebih besar dari taraf signifikansi 5%.
+Hal ini menunjukkan bahwa gagal menolak H0, sehingga residual model tidak mengandung autokorelasi dan telah memenuhi asumsi white noise.
+
+# Uji Normalitas Residual
+Pengujian normalitas residual dilakukan menggunakan uji Jarque-Bera.
+Hipotesis:
+
+- \(H_0\): Residual berdistribusi normal
+- \(H_1\): Residual tidak berdistribusi normal
+
+```{r}
+library(tseries)
+
+# Uji Jarque-Bera
+jarque.bera.test(residuals(tmodel2))
+```
+
+Berdasarkan hasil uji Jarque-Bera diperoleh nilai p-value lebih besar 
+dari 0.05 sehingga gagal menolak \(H_0\).
+Dengan demikian residual model berdistribusi normal.# Kesimpulan Diagnostic Model
+Berdasarkan hasil pengujian diagnostik model:
+
+- Residual tidak mengandung autokorelasi
+- Residual memenuhi asumsi white noise
+- Residual berdistribusi normal
+Sehingga model SARIMA terbaik dapat digunakan untuk proses forecasting.
+
+# Forecasting
+Proses forecasting dilakukan menggunakan model SARIMA terbaik yang telah diperoleh pada tahap sebelumnya untuk memprediksi nilai data pada periode mendatang.
+
+## Validasi Model
+```{r}
+# Forecasting
+ramalan_arima2 <- forecast(tmodel2, h = length(test.ts))
+
+# Menampilkan hasil forecasting
+ramalan_arima2
+```
+
+Hasil forecasting menampilkan nilai ramalan beserta interval kepercayaan 80% dan 95% untuk setiap periode yang diprediksi.
+
+# Evaluasi Akurasi Model
+Evaluasi akurasi dilakukan menggunakan data testing untuk mengetahui kemampuan model dalam melakukan peramalan serta mengukur seberapa baik model SARIMA dalam memprediksi data aktual.
+
+```{r}
+# Mengukur akurasi model
+accuracy(ramalan_arima2, test.ts)
+```
+
+Berdasarkan hasil evaluasi akurasi, diperoleh beberapa ukuran kesalahan, yaitu:
+- RMSE (Root Mean Square Error)
+- MAE (Mean Absolute Error)
+- MAPE (Mean Absolute Percentage Error)
+
+Semakin kecil nilai error yang diperoleh, maka semakin baik kemampuan model dalam melakukan forecasting.
+
+# Plot Forecasting
+```{r}
+plot(ramalan_arima2,
+     col = "blue",
+     main = "Forecasting SARIMA",
+     xlab = "Time",
+     ylab = "Weekly Sales")
+```
+
+Plot forecasting menunjukkan hasil peramalan data untuk beberapa periode ke depan beserta interval kepercayaan prediksi.
+
+# Tabel Hasil Forecasting
+```{r}
+# Membuat tabel forecasting
+forecast_arima2 <- cbind(
+  ramalan_arima2$mean,
+  ramalan_arima2$lower,
+  ramalan_arima2$upper
+)
+
+# Mengubah menjadi data frame
+forecast_arima2 <- as.data.frame(forecast_arima2)
+
+# Menampilkan hasil forecasting
+forecast_arima2
+```
+
+# Visualisasi Hasil Forecasting
+```{r}
+# Plot hasil forecasting
+plot(ramalan_arima2$mean,
+     type = "l",
+     col = "blue",
+     lwd = 2,
+     xlab = "Periode",
+     ylab = "Weekly Sales",
+     main = "Hasil Forecasting SARIMA")
+
+# Menambahkan batas bawah
+lines(ramalan_arima2$lower[,2],
+      col = "red",
+      lwd = 2)
+
+# Menambahkan batas atas
+lines(ramalan_arima2$upper[,2],
+      col = "green",
+      lwd = 2)
+
+# Menambahkan legenda
+legend("topleft",
+       c("Forecast",
+         "Lower 95%",
+         "Upper 95%"),
+       col = c("blue",
+               "red",
+               "green"),
+       lty = 1,
+       lwd = 2,
+       cex = 0.8)
+```
+
+# Kesimpulan Forecasting
+Berdasarkan hasil forecasting menggunakan model SARIMA terbaik, diperoleh prediksi nilai data untuk beberapa periode ke depan dengan tingkat akurasi yang cukup baik.
+Model SARIMA yang terbentuk mampu mengikuti pola data historis sehingga dapat digunakan untuk membantu proses peramalan data time series pada periode selanjutnya.
+
+
